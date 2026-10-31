@@ -1,24 +1,35 @@
 package balancer
 
 import (
-	"reflect"
+	"sync"
 	"testing"
 )
 
 func TestRoundRobinCylesThroughBackend(t *testing.T) {
-	backends := []string{"A", "B", "C"}
+	backends := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
+		"http://localhost:8083",
+	}
 	rr, err := NewRoundRobin(backends)
 	if err != nil {
 		t.Fatalf("NewRoundRobin() error: %v", err)
 	}
-	var got []string
-	for range 6 {
-		got = append(got, rr.Next())
+	want := []string{
+		backends[0],
+		backends[1],
+		backends[2],
+		backends[0],
+		backends[1],
+		backends[2],
 	}
-	want := []string{"A", "B", "C", "A", "B", "C"}
 
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("Next() sequence = %v, want = %v", got, want)
+	for i, expected := range want {
+		got := rr.Next()
+
+		if got.String() != expected {
+			t.Errorf("Next() at call %d = %q, want %q", i, got.String(), expected)
+		}
 	}
 }
 
@@ -29,14 +40,32 @@ func TestRoundRobinRejectsEmptyBackends(t *testing.T) {
 	}
 }
 
-func TestRoundRobinCopiesBackends(t *testing.T) {
-	backends := []string{"A", "B"}
+func TestRoundRobinConcurrentAccess(t *testing.T) {
+	backends := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
+	}
 	rr, err := NewRoundRobin(backends)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("error in NewRoundRobin %v", err)
 	}
-	backends[0] = "CHANGED"
-	if got := rr.Next(); got != "A" {
-		t.Fatalf("Next() = %q, want %q", got, "A")
+	var wg sync.WaitGroup
+	const NumberOfGoroutines = 10
+	const NumberOfRequestPerGoroutine = 100
+	for range NumberOfGoroutines {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			for range NumberOfRequestPerGoroutine {
+				if nxt := rr.Next(); nxt == nil {
+					t.Error("Next() returned nil")
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if got, want := rr.counter.Load(), NumberOfGoroutines*NumberOfRequestPerGoroutine; got != uint64(want) {
+		t.Fatalf("concurrency test failed -> got = %v && want = %v", got, want)
 	}
 }
