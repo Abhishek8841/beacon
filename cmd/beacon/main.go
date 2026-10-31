@@ -20,23 +20,32 @@ func main() {
 		log.Fatal(err)
 	}
 
-	proxy := &httputil.ReverseProxy{
-		// Director: func(r *http.Request) {
-		// 	target, _ := url.Parse(rr.Next())
-		// 	// dont change the r.URL.path!!!
-		// 	r.URL.Scheme = target.Scheme
-		// 	r.URL.Host = target.Host
-		// 	r.Host = target.Host
-		// },
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			target := rr.Next()
-			pr.SetURL(target)
-		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			log.Printf("proxy error: %v", err)
-			http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
-		},
-	}
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		target, err := rr.Next()
+		if err != nil {
+			http.Error(w, "Beacon: no healthy backends available",
+				http.StatusServiceUnavailable)
+			return
+		}
+		proxy := &httputil.ReverseProxy{
+			// Director: func(r *http.Request) {
+			// 	target, _ := url.Parse(rr.Next())
+			// 	// dont change the r.URL.path!!!
+			// 	r.URL.Scheme = target.Scheme
+			// 	r.URL.Host = target.Host
+			// 	r.Host = target.Host
+			// },
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(target.URL)
+			},
+			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+				log.Printf("proxy error: %v", err)
+				http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
+			},
+		}
+		proxy.ServeHTTP(w, r)
+	})
 
 	// target, err := url.Parse("http://localhost:8081")
 	// if err != nil {
@@ -52,7 +61,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:    ":8080",
-		Handler: proxy,
+		Handler: handler,
 	}
 	log.Println("Beacon is listening on :8080")
 	log.Fatal(server.ListenAndServe())

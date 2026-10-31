@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRoundRobinCylesThroughBackend(t *testing.T) {
+func TestRoundRobinCyclesThroughBackend(t *testing.T) {
 	backends := []string{
 		"http://localhost:8081",
 		"http://localhost:8082",
@@ -25,10 +25,13 @@ func TestRoundRobinCylesThroughBackend(t *testing.T) {
 	}
 
 	for i, expected := range want {
-		got := rr.Next()
+		got, err := rr.Next()
+		if err != nil {
+			t.Fatalf("Next() returned unexpected error: %v", err)
+		}
 
-		if got.String() != expected {
-			t.Errorf("Next() at call %d = %q, want %q", i, got.String(), expected)
+		if got.URL.String() != expected {
+			t.Errorf("Next() at call %d = %q, want %q", i, got.URL.String(), expected)
 		}
 	}
 }
@@ -58,7 +61,7 @@ func TestRoundRobinConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range NumberOfRequestPerGoroutine {
-				if nxt := rr.Next(); nxt == nil {
+				if nxt, _ := rr.Next(); nxt == nil {
 					t.Error("Next() returned nil")
 				}
 			}
@@ -67,5 +70,86 @@ func TestRoundRobinConcurrentAccess(t *testing.T) {
 	wg.Wait()
 	if got, want := rr.counter.Load(), NumberOfGoroutines*NumberOfRequestPerGoroutine; got != uint64(want) {
 		t.Fatalf("concurrency test failed -> got = %v && want = %v", got, want)
+	}
+}
+
+func TestAllBackendsHealthy(t *testing.T) {
+	backends := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
+		"http://localhost:8083",
+	}
+	rr, err := NewRoundRobin(backends)
+	if err != nil {
+		t.Fatalf("NewRoundRobin() error: %v", err)
+	}
+	want := []string{
+		backends[0],
+		backends[1],
+		backends[2],
+		backends[0],
+		backends[1],
+		backends[2],
+	}
+
+	for i, expected := range want {
+		got, err := rr.Next()
+		if err != nil {
+			t.Fatalf("Next() returned unexpected error: %v", err)
+		}
+
+		if got.URL.String() != expected {
+			t.Errorf("Next() at call %d = %q, want %q", i, got.URL.String(), expected)
+		}
+	}
+}
+
+func TestOneBackendUnhealthy(t *testing.T) {
+	backends := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
+		"http://localhost:8083",
+	}
+	rr, err := NewRoundRobin(backends)
+	if err != nil {
+		t.Fatalf("NewRoundRobin() error: %v", err)
+	}
+	rr.backends[1].SetHealthy(false)
+
+	want := []string{
+		backends[0],
+		backends[2],
+		backends[0],
+		backends[2],
+	}
+
+	for i, expected := range want {
+		got, err := rr.Next()
+		if err != nil {
+			t.Fatalf("Next() returned unexpected error: %v", err)
+		}
+
+		if got.URL.String() != expected {
+			t.Errorf("Next() at call %d = %q, want %q", i, got.URL.String(), expected)
+		}
+	}
+}
+
+func TestAllBackendsUnhealthy(t *testing.T) {
+	backends := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
+		"http://localhost:8083",
+	}
+	rr, err := NewRoundRobin(backends)
+	if err != nil {
+		t.Fatalf("NewRoundRobin() error: %v", err)
+	}
+	rr.backends[0].SetHealthy(false)
+	rr.backends[1].SetHealthy(false)
+	rr.backends[2].SetHealthy(false)
+
+	if _, err := rr.Next(); err != ErrNoHealthyBackend {
+		t.Fatalf("Next() error = %v, want %v", err, ErrNoHealthyBackend)
 	}
 }
