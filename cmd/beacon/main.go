@@ -31,7 +31,6 @@ func main() {
 	checker := healthcheck.NewChecker(rr.Backends(), 5*time.Second)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -100,6 +99,8 @@ func main() {
 			log.Printf("HTTP server failed: %v", err)
 		}
 	}
+	stop()
+	// stop here instead of defer -> this is to prevent infinite waiting of wg.wait() in case err:=<-serverErr
 
 	shutdownCtx, cancel := context.WithTimeout(
 		context.Background(),
