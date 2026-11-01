@@ -14,6 +14,7 @@ import (
 
 	"github.com/abhishek8841/beacon/internal/balancer"
 	"github.com/abhishek8841/beacon/internal/healthcheck"
+	"github.com/abhishek8841/beacon/internal/proxy"
 )
 
 func main() {
@@ -31,6 +32,7 @@ func main() {
 	checker := healthcheck.NewChecker(rr.Backends(), 5*time.Second)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -38,6 +40,24 @@ func main() {
 		defer wg.Done()
 		checker.Start(ctx)
 	}()
+
+	proxyHandler := &httputil.ReverseProxy{
+		// Director: func(r *http.Request) {
+		// 	target, _ := url.Parse(rr.Next())
+		// 	// dont change the r.URL.path!!!
+		// 	r.URL.Scheme = target.Scheme
+		// 	r.URL.Host = target.Host
+		// 	r.Host = target.Host
+		// },
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			target := pr.In.Context().Value(proxy.BackendKey).(*balancer.Backend)
+			pr.SetURL(target.URL)
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("proxy error: %v", err)
+			http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
+		},
+	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -47,23 +67,10 @@ func main() {
 				http.StatusServiceUnavailable)
 			return
 		}
-		proxy := &httputil.ReverseProxy{
-			// Director: func(r *http.Request) {
-			// 	target, _ := url.Parse(rr.Next())
-			// 	// dont change the r.URL.path!!!
-			// 	r.URL.Scheme = target.Scheme
-			// 	r.URL.Host = target.Host
-			// 	r.Host = target.Host
-			// },
-			Rewrite: func(pr *httputil.ProxyRequest) {
-				pr.SetURL(target.URL)
-			},
-			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-				log.Printf("proxy error: %v", err)
-				http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
-			},
-		}
-		proxy.ServeHTTP(w, r)
+		ctx := context.WithValue(r.Context(), proxy.BackendKey, target)
+		r = r.WithContext(ctx)
+
+		proxyHandler.ServeHTTP(w, r)
 	})
 
 	// target, err := url.Parse("http://localhost:8081")
