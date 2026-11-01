@@ -59,3 +59,7 @@ func (rr *RoundRobin) Next() (*Backend, error) {
 
 	return nil, ErrNoHealthyBackend
 }
+
+func (rr *RoundRobin) Backends() []*Backend {
+	return rr.backends
+}

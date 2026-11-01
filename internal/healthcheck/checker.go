@@ -59,6 +59,6 @@ func (c *Checker) Start(ctx context.Context) {
 	}
 }
 
-// health checker needs access to the back Backend structs that RoundRobin created
+// health checker needs access to the Backend structs that RoundRobin created
 // so that if checker updates the health status
 // round robin also can see the update...

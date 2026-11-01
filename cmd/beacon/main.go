@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/abhishek8841/beacon/internal/balancer"
+	"github.com/abhishek8841/beacon/internal/healthcheck"
 )
 
 func main() {
@@ -19,6 +27,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	checker := healthcheck.NewChecker(rr.Backends(), 5*time.Second)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		checker.Start(ctx)
+	}()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
@@ -63,6 +83,50 @@ func main() {
 		Addr:    ":8080",
 		Handler: handler,
 	}
-	log.Println("Beacon is listening on :8080")
-	log.Fatal(server.ListenAndServe())
+
+	serverErr := make(chan error, 1)
+
+	go func() {
+		log.Println("Beacon is listening on :8080")
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("Shutdown signal received")
+
+	case err := <-serverErr:
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("HTTP server failed: %v", err)
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Graceful shutdown failed: %v", err)
+
+		if closeErr := server.Close(); closeErr != nil {
+			log.Printf("Forced server close failed: %v", closeErr)
+		}
+	}
+
+	wg.Wait()
+
+	log.Println("Beacon shutdown complete")
 }
+
+// Graceful shutdown should:
+// 1. Stop accepting new HTTP connections.
+// 2. Allow existing requests to finish.
+// 3. Stop the health checker.
+// 4. Release server resources.
+
+// This all is implemeneted by server.shutdown(ctx)
+
+// If no Graceful Shutdown then default go mechanisms shutdown the server abruptly
+// But now only ctx gets cancelled rather than abrupt shutdown !!!
