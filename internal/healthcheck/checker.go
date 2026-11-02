@@ -30,18 +30,18 @@ func (c *Checker) checkBackend(backend *balancer.Backend) {
 	healthURL.Path = "/health"
 	resp, err := c.client.Get(healthURL.String())
 	if err != nil {
-		backend.SetHealthy(false)
+		backend.RecordHealthCheck(false)
 		return
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
-	backend.SetHealthy(http.StatusOK == resp.StatusCode)
+	backend.RecordHealthCheck(resp.StatusCode == http.StatusOK)
 }
 
 func (c *Checker) Start(ctx context.Context) {
 	for _, backend := range c.backends {
 		// TODO
-		// this for loop check is sequential 
+		// this for loop check is sequential
 		// address this later
 		c.checkBackend(backend)
 	}
