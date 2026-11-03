@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"os"
@@ -41,6 +42,22 @@ func main() {
 		checker.Start(ctx)
 	}()
 
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   3 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+
+		TLSHandshakeTimeout:   3 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		MaxConnsPerHost:     50,
+		IdleConnTimeout:     90 * time.Second,
+	}
+
 	proxyHandler := &httputil.ReverseProxy{
 		// Director: func(r *http.Request) {
 		// 	target, _ := url.Parse(rr.Next())
@@ -57,6 +74,7 @@ func main() {
 			log.Printf("proxy error: %v", err)
 			http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
 		},
+		Transport: transport,
 	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +106,11 @@ func main() {
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: handler,
+
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second, // be careful with
+		WriteTimeout:      30 * time.Second, // these both
+		IdleTimeout:       60 * time.Second,
 	}
 
 	serverErr := make(chan error, 1)
