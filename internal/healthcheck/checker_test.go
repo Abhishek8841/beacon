@@ -1,6 +1,7 @@
 package healthcheck
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,21 +35,22 @@ func TestFailureBackendUnhealthy(t *testing.T) {
 	}
 	backend := balancer.NewBackend(target)
 	checker := NewChecker([]*balancer.Backend{backend}, time.Second*5)
-	checker.checkBackend(backend)
-	checker.checkBackend(backend)
+	ctx := context.Background()
+	checker.checkBackend(backend, ctx)
+	checker.checkBackend(backend, ctx)
 	if !backend.IsHealthy() {
 		t.Fatal("backend is marked as unhealthy after only 2 tries")
 	}
-	checker.checkBackend(backend)
+	checker.checkBackend(backend, ctx)
 	if backend.IsHealthy() {
 		t.Fatal("backend is healthy even after three failed tries")
 	}
 	status.Store(http.StatusOK)
-	checker.checkBackend(backend)
+	checker.checkBackend(backend, ctx)
 	if backend.IsHealthy() {
 		t.Fatal("one successful check marked the backend healthy")
 	}
-	checker.checkBackend(backend)
+	checker.checkBackend(backend, ctx)
 	if !backend.IsHealthy() {
 		t.Fatal("backend is marked as unhealthy even after two successful checks")
 	}

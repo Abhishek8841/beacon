@@ -25,10 +25,16 @@ func NewChecker(backends []*balancer.Backend, interval time.Duration) *Checker {
 	}
 }
 
-func (c *Checker) checkBackend(backend *balancer.Backend) {
+func (c *Checker) checkBackend(backend *balancer.Backend, ctx context.Context) {
+
 	healthURL := *backend.URL
 	healthURL.Path = "/health"
-	resp, err := c.client.Get(healthURL.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL.String(), nil)
+	if err != nil {
+		backend.RecordHealthCheck(false)
+		return
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		backend.RecordHealthCheck(false)
 		return
@@ -43,7 +49,10 @@ func (c *Checker) Start(ctx context.Context) {
 		// TODO
 		// this for loop check is sequential
 		// address this later
-		c.checkBackend(backend)
+		if ctx.Err() != nil {
+			return
+		}
+		c.checkBackend(backend, ctx)
 	}
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
@@ -53,7 +62,10 @@ func (c *Checker) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			for _, backend := range c.backends {
-				c.checkBackend(backend)
+				if ctx.Err() != nil {
+					return
+				}
+				c.checkBackend(backend, ctx)
 			}
 		}
 	}
