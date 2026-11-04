@@ -25,9 +25,13 @@ func TestRoundRobinCyclesThroughBackend(t *testing.T) {
 	}
 
 	for i, expected := range want {
-		got, err := rr.Next()
+		got, permit, err := rr.Next()
 		if err != nil {
 			t.Fatalf("Next() returned unexpected error: %v", err)
+		}
+
+		if permit == nil {
+			t.Fatal("Next() returned nil permit")
 		}
 
 		if got.URL.String() != expected {
@@ -61,8 +65,8 @@ func TestRoundRobinConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range NumberOfRequestPerGoroutine {
-				if nxt, _ := rr.Next(); nxt == nil {
-					t.Error("Next() returned nil")
+				if nxt, permit, _ := rr.Next(); nxt == nil || permit == nil {
+					t.Error("Next() returned nil backend or permit")
 				}
 			}
 		}()
@@ -93,13 +97,18 @@ func TestAllBackendsHealthy(t *testing.T) {
 	}
 
 	for i, expected := range want {
-		got, err := rr.Next()
+		got, permit, err := rr.Next()
 		if err != nil {
 			t.Fatalf("Next() returned unexpected error: %v", err)
 		}
 
 		if got.URL.String() != expected {
-			t.Errorf("Next() at call %d = %q, want %q", i, got.URL.String(), expected)
+			t.Errorf("Next() at call %d = %q, want %q",
+				i, got.URL.String(), expected)
+		}
+
+		if permit == nil {
+			t.Fatal("Next() returned nil permit")
 		}
 	}
 }
@@ -124,13 +133,18 @@ func TestOneBackendUnhealthy(t *testing.T) {
 	}
 
 	for i, expected := range want {
-		got, err := rr.Next()
+		got, permit, err := rr.Next()
 		if err != nil {
 			t.Fatalf("Next() returned unexpected error: %v", err)
 		}
 
 		if got.URL.String() != expected {
-			t.Errorf("Next() at call %d = %q, want %q", i, got.URL.String(), expected)
+			t.Errorf("Next() at call %d = %q, want %q",
+				i, got.URL.String(), expected)
+		}
+
+		if permit == nil {
+			t.Fatal("Next() returned nil permit")
 		}
 	}
 }
@@ -149,7 +163,46 @@ func TestAllBackendsUnhealthy(t *testing.T) {
 	rr.backends[1].SetHealthy(false)
 	rr.backends[2].SetHealthy(false)
 
-	if _, err := rr.Next(); err != ErrNoHealthyBackend {
-		t.Fatalf("Next() error = %v, want %v", err, ErrNoHealthyBackend)
+	if _, _, err := rr.Next(); err != ErrNoAvailableBackend {
+		t.Fatalf("Next() error = %v, want %v", err, ErrNoAvailableBackend)
+	}
+}
+
+func TestRoundRobinSkipsOpenCircuitBreaker(t *testing.T) {
+	backends := []string{
+		"http://localhost:8081",
+		"http://localhost:8082",
+		"http://localhost:8083",
+	}
+
+	rr, err := NewRoundRobin(backends)
+	if err != nil {
+		t.Fatalf("NewRoundRobin() error: %v", err)
+	}
+
+	backendA := rr.backends[0]
+
+	// open the circuit.
+	for range 5 {
+		allowed, permit := backendA.breaker.Allow()
+		if !allowed {
+			t.Fatal("expected circuit breaker to allow request")
+		}
+
+		backendA.RecordResult(false, permit)
+	}
+
+	got, permit, err := rr.Next()
+	if err != nil {
+		t.Fatalf("Next() returned unexpected error: %v", err)
+	}
+
+	if got.URL.String() != backends[1] {
+		t.Errorf("Next() = %q, want %q",
+			got.URL.String(), backends[1])
+	}
+
+	if permit == nil {
+		t.Fatal("Next() returned nil permit")
 	}
 }
