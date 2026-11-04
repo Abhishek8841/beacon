@@ -18,6 +18,20 @@ import (
 	"github.com/abhishek8841/beacon/internal/proxy"
 )
 
+// Beacon
+//   |
+//   v
+// RoundRobin
+//   |
+//   v
+// Backend
+//   |
+//   v
+// Circuit Breaker
+//   |
+//   v
+// ReverseProxy
+
 func main() {
 
 	backends := []string{

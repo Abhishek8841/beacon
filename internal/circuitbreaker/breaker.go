@@ -56,7 +56,7 @@ func (b *Breaker) Allow() (bool, *Permit) {
 
 	case StateOpen:
 		if time.Since(b.openedAt) < b.recoveryTimeout {
-			return false, &Permit{state: StateOpen, generation: b.generation}
+			return false, nil
 		}
 
 		b.state = StateHalfOpen
@@ -66,7 +66,7 @@ func (b *Breaker) Allow() (bool, *Permit) {
 
 	case StateHalfOpen:
 		if b.halfOpenInFlight {
-			return false, &Permit{state: StateHalfOpen, generation: b.generation}
+			return false, nil
 		}
 
 		b.halfOpenInFlight = true

@@ -3,6 +3,8 @@ package balancer
 import (
 	"net/url"
 	"sync/atomic"
+
+	"github.com/abhishek8841/beacon/internal/circuitbreaker"
 )
 
 const (
@@ -16,11 +18,14 @@ type Backend struct {
 
 	consecutiveFailures  int
 	consecutiveSuccesses int
+
+	breaker *circuitbreaker.Breaker
 }
 
 func NewBackend(url *url.URL) *Backend {
 	b := &Backend{
-		URL: url,
+		URL:     url,
+		breaker: circuitbreaker.NewBreaker(),
 	}
 	b.healthy.Store(true)
 	return b
