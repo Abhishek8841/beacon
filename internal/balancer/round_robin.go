@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"sync/atomic"
+
+	"github.com/abhishek8841/beacon/internal/circuitbreaker"
 )
 
 var ErrNoBackends = errors.New("no backends configured")
-var ErrNoHealthyBackend = errors.New("no healthy backend present")
+var ErrNoAvailableBackend = errors.New("no healthy backend present")
 
 type RoundRobin struct {
 	backends []*Backend
@@ -47,19 +49,28 @@ func NewRoundRobin(backends []string) (*RoundRobin, error) {
 	}, nil
 }
 
-func (rr *RoundRobin) Next() (*Backend, error) {
+func (rr *RoundRobin) Next() (*Backend, *circuitbreaker.Permit, error) {
 	for i := 0; i < len(rr.backends); i++ {
 		index := rr.counter.Add(1) - 1
 		backend := rr.backends[index%uint64(len(rr.backends))]
 
-		if backend.IsHealthy() {
-			return backend, nil
+		if !backend.IsHealthy() {
+			continue
 		}
+
+		allowed, permit := backend.breaker.Allow()
+
+		if !allowed {
+			continue
+		}
+
+		return backend, permit, nil
 	}
 
-	return nil, ErrNoHealthyBackend
+	return nil, nil, ErrNoAvailableBackend
 }
 
 func (rr *RoundRobin) Backends() []*Backend {
 	return rr.backends
 }
+

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/abhishek8841/beacon/internal/balancer"
+	"github.com/abhishek8841/beacon/internal/circuitbreaker"
 	"github.com/abhishek8841/beacon/internal/healthcheck"
 	"github.com/abhishek8841/beacon/internal/proxy"
 )
@@ -85,21 +86,41 @@ func main() {
 			pr.SetURL(target.URL)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			target := r.Context().Value(proxy.BackendKey).(*balancer.Backend)
+			permit := r.Context().Value(proxy.PermitKey).(*circuitbreaker.Permit)
+
+			if r.Context().Err() != nil {
+				log.Printf("request cancelled: %v", r.Context().Err())
+				return
+			}
+
+			target.RecordResult(false, permit)
+
 			log.Printf("proxy error: %v", err)
 			http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
 		},
 		Transport: transport,
+		ModifyResponse: func(r *http.Response) error {
+			target := r.Request.Context().Value(proxy.BackendKey).(*balancer.Backend)
+			permit := r.Request.Context().Value(proxy.PermitKey).(*circuitbreaker.Permit)
+
+			success := r.StatusCode < 500
+
+			target.RecordResult(success, permit)
+
+			return nil
+		},
 	}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		target, err := rr.Next()
+		target, permit, err := rr.Next()
 		if err != nil {
-			http.Error(w, "Beacon: no healthy backends available",
-				http.StatusServiceUnavailable)
+			http.Error(w, "Beacon: no available backends", http.StatusServiceUnavailable)
 			return
 		}
 		ctx := context.WithValue(r.Context(), proxy.BackendKey, target)
+		ctx = context.WithValue(ctx, proxy.PermitKey, permit)
 		r = r.WithContext(ctx)
 
 		proxyHandler.ServeHTTP(w, r)
@@ -161,6 +182,8 @@ func main() {
 	}
 
 	wg.Wait()
+
+	transport.CloseIdleConnections()
 
 	log.Println("Beacon shutdown complete")
 }

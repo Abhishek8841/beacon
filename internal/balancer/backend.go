@@ -57,3 +57,7 @@ func (b *Backend) RecordHealthCheck(success bool) {
 		b.healthy.Store(false)
 	}
 }
+
+func (b *Backend) RecordResult(success bool, permit *circuitbreaker.Permit) {
+	b.breaker.RecordResult(success, permit)
+}
