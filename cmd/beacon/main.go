@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
-	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/signal"
 	"sync"
@@ -14,7 +12,6 @@ import (
 	"time"
 
 	"github.com/abhishek8841/beacon/internal/balancer"
-	"github.com/abhishek8841/beacon/internal/circuitbreaker"
 	"github.com/abhishek8841/beacon/internal/healthcheck"
 	"github.com/abhishek8841/beacon/internal/proxy"
 )
@@ -57,61 +54,10 @@ func main() {
 		checker.Start(ctx)
 	}()
 
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   3 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
+	transport := proxy.NewTransport()
 
-		TLSHandshakeTimeout:   3 * time.Second,
-		ResponseHeaderTimeout: 5 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		MaxConnsPerHost:     50,
-		IdleConnTimeout:     90 * time.Second,
-	}
-
-	proxyHandler := &httputil.ReverseProxy{
-		// Director: func(r *http.Request) {
-		// 	target, _ := url.Parse(rr.Next())
-		// 	// dont change the r.URL.path!!!
-		// 	r.URL.Scheme = target.Scheme
-		// 	r.URL.Host = target.Host
-		// 	r.Host = target.Host
-		// },
-		Rewrite: func(pr *httputil.ProxyRequest) {
-			target := pr.In.Context().Value(proxy.BackendKey).(*balancer.Backend)
-			pr.SetURL(target.URL)
-		},
-		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			target := r.Context().Value(proxy.BackendKey).(*balancer.Backend)
-			permit := r.Context().Value(proxy.PermitKey).(*circuitbreaker.Permit)
-
-			if r.Context().Err() != nil {
-				log.Printf("request cancelled: %v", r.Context().Err())
-				return
-			}
-
-			target.RecordResult(false, permit)
-
-			log.Printf("proxy error: %v", err)
-			http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
-		},
-		Transport: transport,
-		ModifyResponse: func(r *http.Response) error {
-			target := r.Request.Context().Value(proxy.BackendKey).(*balancer.Backend)
-			permit := r.Request.Context().Value(proxy.PermitKey).(*circuitbreaker.Permit)
-
-			success := r.StatusCode < 500
-
-			target.RecordResult(success, permit)
-
-			return nil
-		},
-	}
-
+	proxyHandler := proxy.NewProxyHandler(transport)
+	
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		target, permit, err := rr.Next()
@@ -125,18 +71,6 @@ func main() {
 
 		proxyHandler.ServeHTTP(w, r)
 	})
-
-	// target, err := url.Parse("http://localhost:8081")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// proxy := httputil.NewSingleHostReverseProxy(target)
-
-	// proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-	// 	log.Printf("proxy error: %v", err)
-	// 	http.Error(w, "Beacon: backend unavailable", http.StatusBadGateway)
-	// }
 
 	server := &http.Server{
 		Addr:    ":8080",
