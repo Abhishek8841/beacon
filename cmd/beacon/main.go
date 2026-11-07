@@ -16,20 +16,6 @@ import (
 	"github.com/abhishek8841/beacon/internal/proxy"
 )
 
-// Beacon
-//   |
-//   v
-// RoundRobin
-//   |
-//   v
-// Backend
-//   |
-//   v
-// Circuit Breaker
-//   |
-//   v
-// ReverseProxy
-
 func main() {
 
 	backends := []string{
@@ -57,7 +43,7 @@ func main() {
 	transport := proxy.NewTransport()
 
 	proxyHandler := proxy.NewProxyHandler(transport)
-	
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		target, permit, err := rr.Next()
@@ -132,3 +118,17 @@ func main() {
 
 // If no Graceful Shutdown then default go mechanisms shutdown the server abruptly
 // But now only ctx gets cancelled rather than abrupt shutdown !!!
+
+// Beacon
+//   |
+//   v
+// RoundRobin
+//   |
+//   v
+// Backend
+//   |
+//   v
+// Circuit Breaker
+//   |
+//   v
+// ReverseProxy
