@@ -61,3 +61,7 @@ func (b *Backend) RecordHealthCheck(success bool) {
 func (b *Backend) RecordResult(success bool, permit *circuitbreaker.Permit) {
 	b.breaker.RecordResult(success, permit)
 }
+
+func (b *Backend) ClearPermit(permit *circuitbreaker.Permit) {
+	b.breaker.ClearPermit(permit)
+}

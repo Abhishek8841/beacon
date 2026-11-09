@@ -196,3 +196,40 @@ func TestStalePermitIgnored(t *testing.T) {
 		t.Fatalf("expected failure count to remain 5, got %d", failures)
 	}
 }
+
+func TestClearPermitForHalfOpenState(t *testing.T) {
+	breaker := NewBreaker()
+	breaker.recoveryTimeout = time.Millisecond * 50
+
+	for range 5 {
+		allowed, permit := breaker.Allow()
+		if !allowed || permit == nil {
+			t.Fatal("request should be allowed while CLOSED")
+		}
+		breaker.RecordResult(false, permit)
+	}
+	if got := getState(breaker); got != StateOpen {
+		t.Fatalf("expected OPEN, got %v", got)
+	}
+
+	time.Sleep(time.Millisecond * 60)
+	okay, permit := breaker.Allow()
+	if !okay || permit == nil || permit.state != StateHalfOpen {
+		t.Fatal("expected a HALF-OPEN trial permit")
+	}
+	
+	if allowed, _ := breaker.Allow(); allowed {
+		t.Fatal("second request should be rejected while trial is in flight")
+	}
+
+	breaker.ClearPermit(permit)
+	if got := getState(breaker); got != StateHalfOpen {
+		t.Fatalf("expected HALF-OPEN after ClearPermit, got %v", got)
+	}
+
+	// A new trial should now be allowed.
+	allowed, next := breaker.Allow()
+	if !allowed || next == nil {
+		t.Fatal("expected a new trial to be allowed after ClearPermit")
+	}
+}

@@ -48,6 +48,8 @@ func newErrorHandler() func(w http.ResponseWriter, r *http.Request, err error) {
 		permit := r.Context().Value(PermitKey).(*circuitbreaker.Permit)
 
 		if r.Context().Err() != nil {
+			// Here if the client is in Half Open Condition and not recording result means the server is forever in underRequestMode and never gets another retry
+			target.ClearPermit(permit)
 			log.Printf("request cancelled: %v", r.Context().Err())
 			return
 		}

@@ -129,6 +129,19 @@ func (b *Breaker) RecordResult(success bool, permit *Permit) {
 	}
 }
 
+func (b *Breaker) ClearPermit(permit *Permit) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	switch b.state {
+	case StateHalfOpen:
+		if permit == nil || permit.state != StateHalfOpen || b.generation != permit.generation {
+			return
+		}
+
+		b.halfOpenInFlight = false
+	}
+}
+
 // IMPORTANT RACE CONDITIONS ->
 
 // A--->
