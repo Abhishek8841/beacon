@@ -30,11 +30,11 @@ func TestCeilingGrowsAndCaps(t *testing.T) {
 func TestBackoffStaysWithinBounds(t *testing.T) {
 	p := DefaultPolicy()
 	for attempt := 0; attempt < 10; attempt++ {
-		max := p.ceiling(attempt)
+		limit := p.ceiling(attempt)
 		for i := 0; i < 1000; i++ {
 			got := p.Backoff(attempt)
-			if got < 0 || got > max {
-				t.Fatalf("Backoff(%d) = %v, want within [0, %v]", attempt, got, max)
+			if got < 0 || got > limit {
+				t.Fatalf("Backoff(%d) = %v, want within [0, %v]", attempt, got, limit)
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package retry
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 )
@@ -17,6 +18,8 @@ type Policy struct {
 	MaxDelay time.Duration
 }
 
+var ErrInvalidPolicy = errors.New("retry: invalid policy")
+
 func DefaultPolicy() *Policy {
 	return &Policy{
 		MaxAttempts: 3,
@@ -27,13 +30,13 @@ func DefaultPolicy() *Policy {
 
 func (p *Policy) Validate() error {
 	if p.MaxAttempts < 1 {
-		return errors.New("")
+		return fmt.Errorf("%w: MaxAttempts must be at least 1, got %d", ErrInvalidPolicy, p.MaxAttempts)
 	}
 	if p.BaseDelay <= 0 {
-		return errors.New("")
+		return fmt.Errorf("%w: BaseDelay must be positive, got %v", ErrInvalidPolicy, p.BaseDelay)
 	}
 	if p.MaxDelay < p.BaseDelay {
-		return errors.New("")
+		return fmt.Errorf("%w: MaxDelay (%v) must be >= BaseDelay (%v)", ErrInvalidPolicy, p.MaxDelay, p.BaseDelay)
 	}
 	return nil
 }
@@ -59,4 +62,4 @@ func IsRetryableStatus(code int) bool {
 	}
 }
 
-// 500 is not retryable as it is usually a real bug -> laadle meow ghop ghop ghop
+// 500 is not retryable as it is usually a real bug
